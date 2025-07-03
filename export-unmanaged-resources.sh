@@ -48,6 +48,11 @@ cleanup_yaml() {
               .metadata.annotations."kubectl.kubernetes.io/last-applied-configuration",
               .metadata.annotations."olm.operatorNamespace",
               .metadata.annotations."olm.operatorGroup",
+              .metadata.annotations."volume.kubernetes.io/selected-node",
+              .metadata.annotations."pv.kubernetes.io/bind-completed",
+              .metadata.annotations."pv.kubernetes.io/bound-by-controller",
+              .metadata.annotations."volume.beta.kubernetes.io/storage-provisioner",
+              .metadata.annotations."volume.kubernetes.io/storage-provisioner",
               .status,
               .spec.clusterIP,
               .spec.clusterIPs,
@@ -60,7 +65,8 @@ cleanup_yaml() {
               .spec.loadBalancerIP,
               .spec.loadBalancerSourceRanges,
               .spec.publishNotReadyAddresses,
-              .spec.ports[].nodePort
+              .spec.ports[].nodePort,
+              .spec.volumeName
             ) |
             del(.metadata.annotations | select(. == {})) |
             del(.metadata.labels | select(. == {}))' "$file" > "${file}.cleaned" && mv "${file}.cleaned" "$file"
@@ -82,6 +88,11 @@ cleanup_yaml() {
                 /kubectl.kubernetes.io\/last-applied-configuration:/d
                 /olm.operatorNamespace:/d
                 /olm.operatorGroup:/d
+                /volume.kubernetes.io\/selected-node:/d
+                /pv.kubernetes.io\/bind-completed:/d
+                /pv.kubernetes.io\/bound-by-controller:/d
+                /volume.beta.kubernetes.io\/storage-provisioner:/d
+                /volume.kubernetes.io\/storage-provisioner:/d
                 /managedFields:/,/^[^ ]/d
                 /clusterIP:/d
                 /clusterIPs:/d
@@ -95,6 +106,7 @@ cleanup_yaml() {
                 /loadBalancerSourceRanges:/d
                 /publishNotReadyAddresses:/d
                 /nodePort:/d
+                /volumeName:/d
             ' "$file"
 
             # Remove status sections using awk
