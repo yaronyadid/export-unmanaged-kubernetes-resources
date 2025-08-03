@@ -41,6 +41,10 @@ RELATED_RESOURCES = [
     "services",
     "persistentvolumeclaims",
     "serviceaccounts",
+    "roles",
+    "rolebindings",
+    "clusterroles",
+    "clusterrolebindings",
     "ingresses",
     "routes",  # OpenShift routes
     "networkpolicies",
@@ -206,11 +210,16 @@ class K8sResourceGrouper:
         This method fetches all resources once and stores them in memory,
         avoiding repeated kubectl calls during processing. Only unmanaged
         resources that we care about are cached.
+        
+        Note: ClusterRoles and ClusterRoleBindings are cluster-scoped, so we fetch them without namespace.
         """
         print("Caching all resources...")
-        all_resource_types = WORKLOAD_RESOURCES + RELATED_RESOURCES
         
-        for resource_type in all_resource_types:
+        # Handle namespace-scoped resources
+        namespace_scoped = [r for r in WORKLOAD_RESOURCES + RELATED_RESOURCES 
+                           if r not in ['clusterroles', 'clusterrolebindings']]
+        
+        for resource_type in namespace_scoped:
             self.all_resources[resource_type] = {}
             # Get all resource names of this type in the namespace
             names = run_cmd(f"kubectl get {resource_type} -n {self.namespace} -o jsonpath='{{.items[*].metadata.name}}'")
@@ -226,6 +235,72 @@ class K8sResourceGrouper:
                         
                     # Fetch and cache the resource YAML
                     resource_obj = self.get_resource_yaml(resource_type, name)
+                    if resource_obj:
+                        self.all_resources[resource_type][name] = resource_obj
+
+    def get_cluster_resource_yaml(self, resource, name):
+        """
+        Fetch and parse a cluster-scoped Kubernetes resource as YAML.
+        
+        Args:
+            resource (str): Resource type (e.g., 'clusterroles', 'clusterrolebindings')
+            name (str): Resource name
+            
+        Returns:
+            dict: Parsed YAML object, or None if failed
+        """
+        yaml_str = run_cmd(f"kubectl get {resource} {name} -o yaml")
+        if not yaml_str.strip():
+            return None
+        try:
+            return yaml.safe_load(yaml_str)
+        except Exception as e:
+            print(f"[WARN] Could not parse YAML for {resource}/{name}: {e}")
+            return None
+
+    def should_skip_cluster_resource(self, resource_type, name):
+        """
+        Determine if we should skip a cluster-scoped resource.
+        
+        We skip system cluster resources that are built into Kubernetes.
+        
+        Args:
+            resource_type (str): Type of resource
+            name (str): Name of resource
+            
+        Returns:
+            bool: True if resource should be skipped
+        """
+        # Skip system cluster roles and bindings
+        system_prefixes = [
+            "system:",
+            "cluster-admin",
+            "admin",
+            "edit", 
+            "view",
+            "kubeadm:",
+            "node-",
+            "kubernetes-",
+        ]
+        
+        if any(name.startswith(prefix) for prefix in system_prefixes):
+            return True
+            
+        return False
+        
+        # Handle cluster-scoped resources (ClusterRoles and ClusterRoleBindings)
+        for resource_type in ['clusterroles', 'clusterrolebindings']:
+            self.all_resources[resource_type] = {}
+            # Get all cluster-scoped resources (no namespace)
+            names = run_cmd(f"kubectl get {resource_type} -o jsonpath='{{.items[*].metadata.name}}'")
+            if names:
+                for name in names.split():
+                    # Skip system cluster resources
+                    if self.should_skip_cluster_resource(resource_type, name):
+                        continue
+                        
+                    # Fetch cluster resource YAML (no namespace)
+                    resource_obj = self.get_cluster_resource_yaml(resource_type, name)
                     if resource_obj:
                         self.all_resources[resource_type][name] = resource_obj
 
@@ -422,6 +497,66 @@ class K8sResourceGrouper:
                 return hpa_name
         return None
 
+    def find_rbac_for_serviceaccount(self, sa_name):
+        """
+        Find Roles, RoleBindings, ClusterRoles, and ClusterRoleBindings associated with a ServiceAccount.
+        
+        This method searches for RBAC resources that grant permissions to the specified ServiceAccount.
+        It looks for both namespace-scoped (Role/RoleBinding) and cluster-scoped (ClusterRole/ClusterRoleBinding) resources.
+        
+        Args:
+            sa_name (str): Name of the ServiceAccount
+            
+        Returns:
+            dict: Dictionary with lists of RBAC resource names by type
+        """
+        rbac_resources = {
+            'roles': [],
+            'rolebindings': [],
+            'clusterroles': [],
+            'clusterrolebindings': []
+        }
+        
+        # Find RoleBindings that reference this ServiceAccount
+        for rb_name, rb_obj in self.all_resources.get('rolebindings', {}).items():
+            subjects = rb_obj.get('subjects', [])
+            for subject in subjects:
+                if (subject.get('kind') == 'ServiceAccount' and 
+                    subject.get('name') == sa_name and
+                    subject.get('namespace', self.namespace) == self.namespace):
+                    rbac_resources['rolebindings'].append(rb_name)
+                    
+                    # Also get the Role that this RoleBinding references
+                    role_ref = rb_obj.get('roleRef', {})
+                    if role_ref.get('kind') == 'Role':
+                        role_name = role_ref.get('name')
+                        if role_name and role_name in self.all_resources.get('roles', {}):
+                            if role_name not in rbac_resources['roles']:
+                                rbac_resources['roles'].append(role_name)
+                    elif role_ref.get('kind') == 'ClusterRole':
+                        # RoleBinding can reference ClusterRole
+                        cluster_role_name = role_ref.get('name')
+                        if cluster_role_name and cluster_role_name not in rbac_resources['clusterroles']:
+                            rbac_resources['clusterroles'].append(cluster_role_name)
+        
+        # Find ClusterRoleBindings that reference this ServiceAccount
+        for crb_name, crb_obj in self.all_resources.get('clusterrolebindings', {}).items():
+            subjects = crb_obj.get('subjects', [])
+            for subject in subjects:
+                if (subject.get('kind') == 'ServiceAccount' and 
+                    subject.get('name') == sa_name and
+                    subject.get('namespace', self.namespace) == self.namespace):
+                    rbac_resources['clusterrolebindings'].append(crb_name)
+                    
+                    # Also get the ClusterRole that this ClusterRoleBinding references
+                    role_ref = crb_obj.get('roleRef', {})
+                    if role_ref.get('kind') == 'ClusterRole':
+                        cluster_role_name = role_ref.get('name')
+                        if cluster_role_name and cluster_role_name not in rbac_resources['clusterroles']:
+                            rbac_resources['clusterroles'].append(cluster_role_name)
+        
+        return rbac_resources
+
     def find_related_networkpolicies(self, workload_obj):
         """
         Find network policies that might apply to this workload.
@@ -584,6 +719,20 @@ class K8sResourceGrouper:
                         self.save_resource(workload_name, resource_type, resource_name, 
                                          self.all_resources[resource_type][resource_name])
                     related_resources.append(f"{resource_type}/{resource_name}")
+
+        # For each ServiceAccount, also find its RBAC resources
+        for sa_name in referenced.get('serviceaccounts', []):
+            if sa_name in self.all_resources.get('serviceaccounts', {}):
+                rbac_resources = self.find_rbac_for_serviceaccount(sa_name)
+                
+                # Save RBAC resources
+                for rbac_type, rbac_names in rbac_resources.items():
+                    for rbac_name in rbac_names:
+                        if rbac_name in self.all_resources.get(rbac_type, {}):
+                            if not self.dry_run:
+                                self.save_resource(workload_name, rbac_type, rbac_name,
+                                                 self.all_resources[rbac_type][rbac_name])
+                            related_resources.append(f"{rbac_type}/{rbac_name}")
 
         # Find services that select this workload's pods
         matching_services = self.find_matching_services(workload_obj)
