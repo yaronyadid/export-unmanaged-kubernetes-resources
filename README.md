@@ -1,73 +1,156 @@
-## Overview
+# GitOps Preparation Tool
 
-This bash script provides a utility for extracting and exporting unmanaged Kubernetes resources from a specified namespace. It's designed to identify and export only those resources that are not managed by operators, Helm charts, or other automated systems, making it ideal for migration scenarios, backup operations, or infrastructure auditing.
+A Python script that exports Kubernetes resources grouped by their workloads (deployments, statefulsets, cronjobs). It automatically discovers and groups related resources like ConfigMaps, Secrets, Services, Ingresses, and more.
 
-## Purpose
+## What It Does
 
-The script addresses the common DevOps challenge of distinguishing between manually created resources and those managed by automation tools. It exports clean, reusable YAML manifests that can be version-controlled, migrated to other clusters, or used for disaster recovery purposes.
+For each workload in a namespace, the script finds and exports:
+- **The workload itself** (Deployment, StatefulSet, CronJob, Job)
+- **ConfigMaps and Secrets** referenced by the workload
+- **PersistentVolumeClaims** used by the workload
+- **Services** that select the workload's pods
+- **Ingresses/Routes** that point to those services
+- **ServiceAccounts** used by the workload (excluding default)
+- **HorizontalPodAutoscalers** that target the workload
+- **NetworkPolicies** that apply to the workload's pods
 
-## Key Features
+## Features
 
-- **Intelligent Resource Filtering**: Automatically identifies and excludes resources managed by Helm, operators, or other controllers
-- **Comprehensive Cleanup**: Removes cluster-specific metadata, runtime fields, and managed fields to produce clean, portable YAML
-- **Multi-tool Compatibility**: Supports both `yq` and fallback sed/awk for YAML processing
-- **Organized Output**: Creates timestamped directories with properly structured resource files
-- **Context-aware**: Supports multiple Kubernetes contexts for multi-cluster environments
+- ✅ **Smart Resource Discovery** - Automatically traces relationships between resources
+- ✅ **Clean YAML Output** - Removes runtime fields and Kubernetes-managed metadata
+- ✅ **Unmanaged Resources Only** - Skips Helm-managed and operator-managed resources
+- ✅ **OpenShift Support** - Handles both Ingresses and OpenShift Routes
+- ✅ **Dry Run Mode** - Preview what would be exported without creating files
+- ✅ **Organized Output** - Each workload gets its own directory
+
+## Requirements
+
+- Python 3.6+
+- `kubectl` configured and accessible
+- Access to the target Kubernetes cluster
+- Required Python packages: `pyyaml` (usually included in most Python installations)
+
+## Installation
+
+1. Save the script as `export_clean_group.py`
+2. Make it executable:
+   ```bash
+   chmod +x export_clean_group.py
+   ```
 
 ## Usage
 
+### Basic Usage
 ```bash
-./export-unmanaged-resources.sh <namespace> [context]
+python3 export_clean_group.py my-namespace
 ```
 
-**Parameters:**
-- `namespace` (required): Target Kubernetes namespace to export
-- `context` (optional): Kubernetes context to use (defaults to current context)
-
-**Example:**
+### Preview Without Creating Files
 ```bash
-./export-unmanaged-resources.sh production-app
-./export-unmanaged-resources.sh staging-app my-staging-cluster
+python3 export_clean_group.py my-namespace --dry-run
 ```
 
-## Resource Types Exported
+### Use Specific Kubernetes Context
+```bash
+python3 export_clean_group.py my-namespace --context my-cluster-context
+```
 
-The script exports the following resource types when they are unmanaged:
-- ConfigMaps and Secrets
-- Services
-- Deployments, StatefulSets, DaemonSets
-- Jobs and CronJobs
-- PersistentVolumeClaims
-- ServiceAccounts
-- RBAC resources (Roles, RoleBindings)
-- NetworkPolicies and Ingresses
-- HorizontalPodAutoscalers
+### Command Line Options
+```
+positional arguments:
+  namespace             Namespace to process
 
-## Managed object Detection Logic
-
-Resources are considered "managed" and excluded if they:
-- Contain Helm-related labels (`helm.sh/chart`, `app.kubernetes.io/managed-by: Helm`)
-- Have `ownerReferences` pointing to controllers or operators
-- Contain operator-specific labels or annotations
-- Are system-generated (e.g., default ServiceAccount, kube-system resources)
+optional arguments:
+  --context CONTEXT     Kubernetes context to use
+  --dry-run            Preview without saving files
+  --workers WORKERS    Number of parallel workers (default: 10)
+  --help               Show help message
+```
 
 ## Output Structure
 
-The script creates a timestamped directory containing:
-- `00-namespace.yaml`: Namespace definition
-- `<resource-type>.yaml`: Individual files for each resource type with unmanaged resources
+The script creates a timestamped directory with subdirectories for each workload:
 
-## Prerequisites
+```
+my-namespace-grouped-2024-01-15_14-30-45/
+├── my-app-deployment/
+│   ├── deployments-my-app-deployment.yaml
+│   ├── services-my-app-service.yaml
+│   ├── configmaps-my-app-config.yaml
+│   ├── secrets-my-app-secret.yaml
+│   ├── ingresses-my-app-ingress.yaml
+│   └── serviceaccounts-my-app-sa.yaml
+├── my-worker-cronjob/
+│   ├── cronjobs-my-worker-cronjob.yaml
+│   └── configmaps-worker-config.yaml
+└── my-database-statefulset/
+    ├── statefulsets-my-database-statefulset.yaml
+    ├── services-my-database-service.yaml
+    ├── persistentvolumeclaims-data-my-database-0.yaml
+    └── persistentvolumeclaims-data-my-database-1.yaml
+```
 
-- `kubectl` configured with appropriate cluster access
-- `yq` (recommended) or standard Unix tools (sed, awk) for YAML processing
-- Bash shell environment
+## What Gets Skipped
+
+The script automatically skips:
+- **Managed Resources**: Resources with Helm labels (`helm.sh/chart`) or managed-by annotations
+- **System Resources**: Default service accounts, kube-system resources, etc.
+- **Operator-Managed**: Resources with owner references (managed by controllers/operators)
+
+## Example Output
+
+```
+$ python3 export_clean_group.py sample-app --dry-run
+
+Caching all resources...
+Processing deployments/frontend
+Processing deployments/backend
+Processing cronjobs/cleanup-job
+
+✅ Export Summary:
+  📁 frontend (5 resources)
+      • deployments/frontend
+      • configmaps/frontend-config
+      • secrets/frontend-secret
+      • services/frontend-service
+      • ingresses/frontend-ingress
+  📁 backend (4 resources)
+      • deployments/backend
+      • configmaps/backend-config
+      • services/backend-service
+      • horizontalpodautoscalers/backend-hpa
+  📁 cleanup-job (2 resources)
+      • cronjobs/cleanup-job
+      • configmaps/cleanup-config
+```
 
 ## Use Cases
 
-- **Cluster Migration**: Export unmanaged resources for migration to new clusters
-- **Backup Operations**: Create portable backups of manually created resources
-- **Infrastructure Auditing**: Identify resources not under version control or automation
-- **Disaster Recovery**: Maintain clean manifests for critical unmanaged components
+- **Cluster Migration**: Export workloads for deployment in other clusters
+- **Backup**: Create clean backups of application configurations
+- **Documentation**: Understand resource relationships and dependencies
+- **Development**: Extract production configs for local development
+- **Troubleshooting**: Analyze complete application stacks
 
-This script is particularly valuable in environments transitioning from manual resource management to GitOps or when performing cluster upgrades that require resource recreation.
+## Troubleshooting
+
+### "Namespace does not exist"
+Make sure you're connected to the right cluster and the namespace exists:
+```bash
+kubectl get namespaces
+kubectl config current-context
+```
+
+### "No unmanaged workloads found"
+This means all workloads in the namespace are managed by Helm or operators. Use `--dry-run` to see what's being skipped.
+
+### Permission Errors
+Ensure your kubectl context has read permissions for all resource types in the target namespace.
+
+## Contributing
+
+Feel free to submit issues or pull requests to improve the script.
+
+Contact:
+
+www.linkedin.com/in/yaron-yadid
