@@ -88,28 +88,42 @@ optional arguments:
 The script creates a timestamped directory with subdirectories for each workload:
 
 ```
-my-namespace-grouped-2024-01-15_14-30-45/
-├── my-app-deployment/
-│   ├── deployments-my-app-deployment.yaml
-│   ├── services-my-app-service.yaml
-│   ├── configmaps-my-app-config.yaml
-│   ├── secrets-my-app-secret.yaml
-│   ├── serviceaccounts-my-app-sa.yaml
-│   ├── roles-my-app-role.yaml
-│   ├── rolebindings-my-app-binding.yaml
-│   ├── clusterroles-shared-reader.yaml
-│   ├── clusterrolebindings-my-app-cluster-binding.yaml
-│   └── ingresses-my-app-ingress.yaml
-├── my-worker-cronjob/
-│   ├── cronjobs-my-worker-cronjob.yaml
-│   └── configmaps-worker-config.yaml
-└── my-database-statefulset/
-    ├── statefulsets-my-database-statefulset.yaml
-    ├── services-my-database-service.yaml
-    ├── persistentvolumeclaims-data-my-database-0.yaml
-    └── persistentvolumeclaims-data-my-database-1.yaml
+sample-app-grouped-2025-08-04_17-15-23
+├── frontend
+│   ├── deployments-frontend.yaml
+│   └── services-frontend.yaml
+├── frontend-helmified
+│   ├── Chart.yaml
+│   ├── templates
+│   │   ├── deployments-frontend.yaml
+│   │   ├── _helpers.tpl
+│   │   └── services-frontend.yaml
+│   └── values.yaml
+├── my-app
+│   ├── configmaps-my-app-config.yaml
+│   ├── deployments-my-app.yaml
+│   ├── ingresses-my-app-ingress.yaml
+│   ├── networkpolicies-allow-from-ingress.yaml
+│   ├── rolebindings-my-app-rolebinding.yaml
+│   ├── roles-my-app-role.yaml
+│   ├── secrets-my-app-secret.yaml
+│   ├── serviceaccounts-my-app-sa.yaml
+│   └── services-my-app-service.yaml
+├── my-app-helmified
+│   ├── Chart.yaml
+│   ├── templates
+│   │   ├── configmaps-my-app-config.yaml
+│   │   ├── deployments-my-app.yaml
+│   │   ├── _helpers.tpl
+│   │   ├── ingresses-my-app-ingress.yaml
+│   │   ├── networkpolicies-allow-from-ingress.yaml
+│   │   ├── rolebindings-my-app-rolebinding.yaml
+│   │   ├── roles-my-app-role.yaml
+│   │   ├── secrets-my-app-secret.yaml
+│   │   ├── serviceaccounts-my-app-sa.yaml
+│   │   └── services-my-app-service.yaml
+│   └── values.yaml
 ```
-
 ## What Gets Skipped
 
 The script automatically skips:
