@@ -772,6 +772,18 @@ class K8sResourceGrouper:
         # Store summary for final report
         self.summary[workload_name] = related_resources
 
+    def helmify_folder(self, workload_name):
+        input_folder = os.path.join(self.export_dir, workload_name)
+        output_folder = os.path.join(self.export_dir, workload_name+"-helmified")
+        os.makedirs(output_folder, exist_ok=True)
+
+        print(f"🛠️  Running helmify for '{workload_name}'")
+        try:
+            subprocess.run(["helmify", "-f", input_folder, output_folder], check=True)
+        except subprocess.CalledProcessError as e:
+            error_message = e.stderr or e.stdout or "Unknown error"
+            print(f"❌ Helmify failed for '{workload_name}': {error_message}")
+
     def export_all(self):
         """
         Main export function that orchestrates the entire process.
@@ -798,6 +810,7 @@ class K8sResourceGrouper:
         for workload_type in WORKLOAD_RESOURCES:
             for workload_name, workload_obj in self.all_resources.get(workload_type, {}).items():
                 self.process_workload(workload_type, workload_name, workload_obj)
+                self.helmify_folder(workload_name)
 
         self.print_summary()
 
