@@ -24,6 +24,17 @@ For each workload in a namespace, the script finds and exports:
 - ✅ **OpenShift Support** - Handles both Ingresses and OpenShift Routes
 - ✅ **Dry Run Mode** - Preview what would be exported without creating files
 - ✅ **Organized Output** - Each workload gets its own directory
+- ✅ **Automatic Helm chart creation** - Each workload gets its own directory with helmified files ready to deploy using helmify
+
+
+
+## Helm Chart Generation
+The script supports **automatic Helm chart creation** using [`helmify`](https://github.com/arttor/helmify)
+For every exported workload folder, it will:
+- Run `helmify -f <folder> <folder>-helmified`
+- Convert all valid Kubernetes YAMLs into a templated Helm chart structure
+- Log an error if `helmify` fails for a specific folder
+
 
 ## Requirements
 
@@ -33,6 +44,7 @@ For each workload in a namespace, the script finds and exports:
 - **Namespace read permissions** for the target namespace
 - **Cluster read permissions** for ClusterRoles and ClusterRoleBindings (optional, see [Permissions](#permissions) section)
 - Required Python packages: `pyyaml` (usually included in most Python installations)
+- Ensure [`helmify`](https://github.com/arttor/helmify) is installed and in your `PATH`.
 
 ## Installation
 
